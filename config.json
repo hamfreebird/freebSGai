@@ -1,0 +1,117 @@
+{
+  "window": {
+    "width": 1920,
+    "height": 1080,
+    "fullscreen": false,
+    "title": "2D宇宙太空战物理模拟"
+  },
+  
+  "simulation": {
+    "time_step": 60.0,
+    "max_time_scale": 1000.0,
+    "simulation_boundary": 1e12,
+    "gravitational_constant": 6.67430e-11,
+    "pixels_per_meter": 0.01,
+    "light_speed": 299792458.0
+  },
+  
+  "camera": {
+    "move_speed": 1e9,
+    "zoom_speed": 1.2,
+    "min_zoom": 0.0001,
+    "max_zoom": 100.0
+  },
+  
+  "time_controls": {
+    "time_scales": [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0],
+    "default_time_scale": 1.0
+  },
+  
+  "colors": {
+    "background": [0, 0, 20],
+    "grid": [30, 30, 60],
+    "star": [255, 255, 200],
+    "planet": [100, 200, 255],
+    "asteroid": [150, 150, 150],
+    "spaceship": [255, 100, 100],
+    "trajectory": [100, 255, 100],
+    "ui_background": [0, 0, 0, 200],
+    "ui_text": [255, 255, 255],
+    "ui_highlight": [255, 200, 50]
+  },
+  
+  "ui": {
+    "font_size_small": 16,
+    "font_size_medium": 20,
+    "font_size_large": 24,
+    "panel_width": 300,
+    "panel_margin": 10,
+    "info_panel_height": 200
+  },
+  
+  "initial_scenario": {
+    "name": "太阳系演示",
+    "entities": [
+      {
+        "type": "star",
+        "name": "太阳",
+        "mass": 1.989e30,
+        "density": 1408,
+        "position": [0, 0],
+        "velocity": [0, 0],
+        "color": [255, 255, 200]
+      },
+      {
+        "type": "planet",
+        "name": "地球",
+        "mass": 5.972e24,
+        "density": 5515,
+        "position": [1.496e11, 0],
+        "velocity": [0, 29780],
+        "color": [100, 200, 255]
+      },
+      {
+        "type": "planet",
+        "name": "火星",
+        "mass": 6.39e23,
+        "density": 3933,
+        "position": [2.279e11, 0],
+        "velocity": [0, 24130],
+        "color": [255, 150, 100]
+      }
+    ],
+    "objects": [
+      {
+        "type": "spaceship",
+        "label": "探索者号",
+        "position": [1.496e11, 1e10],
+        "velocity": [0, 30780],
+        "max_acceleration": 5.0,
+        "remaining_dv": 1000.0,
+        "color": [255, 100, 100]
+      }
+    ]
+  },
+  
+  "controls": {
+    "move_up": "w",
+    "move_down": "s",
+    "move_left": "a",
+    "move_right": "d",
+    "zoom_in": "q",
+    "zoom_out": "e",
+    "time_increase": ".",
+    "time_decrease": ",",
+    "toggle_pause": "space",
+    "toggle_reference_frame": "g",
+    "toggle_interface": "t",
+    "cycle_target": "tab",
+    "maneuver_confirm": "return",
+    "maneuver_increase_dv": "o",
+    "maneuver_decrease_dv": "-",
+    "maneuver_increase_angle": "p",
+    "maneuver_decrease_angle": "[",
+    "maneuver_increase_throttle": "]",
+    "maneuver_decrease_throttle": "["
+  }
+}
