@@ -44,7 +44,7 @@
     "font_size_small": 16,
     "font_size_medium": 20,
     "font_size_large": 24,
-    "panel_width": 300,
+    "panel_width": 500,
     "panel_margin": 10,
     "info_panel_height": 200
   },
@@ -54,7 +54,7 @@
     "entities": [
       {
         "type": "star",
-        "name": "太阳",
+        "name": "Sun",
         "mass": 1.989e30,
         "density": 1408,
         "position": [0, 0],
@@ -63,7 +63,7 @@
       },
       {
         "type": "planet",
-        "name": "地球",
+        "name": "Earth",
         "mass": 5.972e24,
         "density": 5515,
         "position": [1.496e11, 0],
@@ -72,7 +72,7 @@
       },
       {
         "type": "planet",
-        "name": "火星",
+        "name": "Mars",
         "mass": 6.39e23,
         "density": 3933,
         "position": [2.279e11, 0],
@@ -83,7 +83,7 @@
     "objects": [
       {
         "type": "spaceship",
-        "label": "探索者号",
+        "label": "E.SS",
         "position": [1.496e11, 1e10],
         "velocity": [0, 30780],
         "max_acceleration": 5.0,

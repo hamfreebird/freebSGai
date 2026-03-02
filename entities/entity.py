@@ -56,9 +56,10 @@ class Entity:
         return np.linalg.norm(self.position - other.position)
     
     def copy(self) -> 'Entity':
-        """创建实体的副本"""
+        """创建实体的副本（生成新的ID）"""
+        import uuid
         return Entity(
-            id=self.id + "_copy",
+            id=str(uuid.uuid4()),  # 生成新的UUID
             mass=self.mass,
             density=self.density,
             radius=self.radius,
@@ -189,9 +190,10 @@ class Object:
         return np.linalg.norm(self.position - entity.position)
     
     def copy(self) -> 'Object':
-        """创建对象的副本"""
+        """创建对象的副本（生成新的ID）"""
+        import uuid
         return Object(
-            id=self.id + "_copy",
+            id=str(uuid.uuid4()),  # 生成新的UUID
             position=self.position.copy(),
             velocity=self.velocity.copy(),
             label=self.label,

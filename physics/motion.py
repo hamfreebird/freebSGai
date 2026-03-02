@@ -37,18 +37,10 @@ def update_entities(entities: List[Entity], dt: float) -> List[Entity]:
         # 更新位置 x = x0 + v * dt + 0.5 * a * dt²
         new_position = entity.position + entity.velocity * dt + 0.5 * acceleration * dt ** 2
         
-        # 创建更新后的实体
-        updated_entity = Entity(
-            id=entity.id,
-            mass=entity.mass,
-            density=entity.density,
-            radius=entity.radius,
-            position=new_position,
-            velocity=new_velocity,
-            color=entity.color,
-            name=entity.name
-        )
-        updated_entities.append(updated_entity)
+        # 直接修改原实体的位置和速度，保持ID不变
+        entity.position = new_position
+        entity.velocity = new_velocity
+        updated_entities.append(entity)
     
     return updated_entities
 
@@ -108,14 +100,12 @@ def update_objects(objects: List[Object], entities: List[Entity],
                     'thrust_direction': thrust_direction.tolist()
                 })
         
-        # 更新对象位置
-        new_obj = obj.copy()
-        new_obj.update_position(total_acceleration, dt)
+        # 更新对象位置（直接修改原对象，保持ID不变）
+        obj.update_position(total_acceleration, dt)
         
-        # 更新剩余dv（已在apply_thrust中更新）
-        new_obj.remaining_dv = obj.remaining_dv
+        # 注意：remaining_dv已在apply_thrust中更新
         
-        updated_objects.append(new_obj)
+        updated_objects.append(obj)
         thrust_infos.append(thrust_info)
     
     return updated_objects, thrust_infos

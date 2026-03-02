@@ -182,10 +182,22 @@ class UniverseSimulation:
         if any(info['thrust_applied'] for info in thrust_infos):
             self.event_flags['thrust_applied'] = True
         
-        # 处理碰撞
-        self.objects, self.entities, collision_stats = process_all_collisions(
-            self.objects, self.entities
-        )
+        # 处理碰撞（暂时禁用，因为天文距离下不应该有碰撞）
+        # self.objects, self.entities, collision_stats = process_all_collisions(
+        #     self.objects, self.entities
+        # )
+        
+        # 创建空的碰撞统计
+        collision_stats = {
+            'total_collisions': 0,
+            'object_entity_collisions': 0,
+            'entity_entity_collisions': 0,
+            'object_object_collisions': 0,
+            'objects_destroyed': 0,
+            'entities_merged': 0,
+            'objects_remaining': len(self.objects),
+            'entities_remaining': len(self.entities)
+        }
         
         # 更新碰撞事件标志
         if collision_stats['total_collisions'] > 0:

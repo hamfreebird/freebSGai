@@ -119,13 +119,14 @@ class GUIManager:
         # 创建模拟引擎
         sim_config = SimulationConfig(
             screen_width=self.config.width,
-            screen_height=self.config.height
+            screen_height=self.config.height,
+            simulation_boundary=1e13  # 增加模拟边界，以适应天文距离（地球距离太阳约1.5e11米）
         )
         self.simulation = UniverseSimulation(sim_config)
         
         # 相机状态
         self.camera_position = np.array([0.0, 0.0])  # 相机中心位置 (米)
-        self.camera_zoom = 1e-9  # 像素/米 (更小的值以便看到整个太阳系)
+        self.camera_zoom = 5e-9  # 像素/米 (调整以便更好地看到太阳系，让地球在屏幕边缘)
         self.camera_move_speed = self.config.move_speed
         self.target_camera_zoom = self.camera_zoom  # 目标缩放级别（用于平滑缩放）
         self.zoom_smoothness = 0.1  # 缩放平滑度（0-1，越小越平滑）
@@ -184,12 +185,12 @@ class GUIManager:
                 entity = Entity(
                     mass=entity_data.get('mass', 5.972e24),
                     density=entity_data.get('density', 5515),
-                    radius=entity_data.get('radius', 6.371e6),
+                    radius=0.0,  # 传递0，让__post_init__根据质量和密度计算半径
                     position=np.array(entity_data['position']),
                     velocity=np.array(entity_data['velocity']),
-                    name=entity_data['name']
+                    name=entity_data['name'],
+                    color=tuple(entity_data['color'])
                 )
-                entity.color = tuple(entity_data['color'])
             elif entity_data['type'] == 'asteroid':
                 entity = create_asteroid(
                     name=entity_data['name'],
@@ -205,16 +206,22 @@ class GUIManager:
         # 创建对象
         for object_data in scenario['objects']:
             if object_data['type'] == 'spaceship':
+                # 创建属性字典
+                attributes = {
+                    'color': tuple(object_data['color']),
+                    'max_acceleration': object_data.get('max_acceleration', 5.0),
+                    'remaining_dv': object_data.get('remaining_dv', 1000.0)
+                }
+                
                 # 直接创建Object对象
                 obj = Object(
                     position=np.array(object_data['position']),
                     velocity=np.array(object_data['velocity']),
                     label=object_data['label'],
+                    attributes=attributes,
                     max_acceleration=object_data.get('max_acceleration', 5.0),
                     remaining_dv=object_data.get('remaining_dv', 1000.0)
                 )
-                # 设置颜色属性
-                obj.color = tuple(object_data['color'])
                 self.simulation.add_object(obj)
     
     def _create_reference_frames(self):
@@ -310,73 +317,147 @@ class GUIManager:
     def draw_entities(self):
         """绘制所有实体"""
         for entity in self.simulation.entities:
-            screen_pos = self.world_to_screen_int(entity.position)
-            
-            # 计算实体在屏幕上的半径
-            # 对于非常大的实体（如太阳），使用对数缩放使其在屏幕上看起来合理
-            if entity.radius > 1e7:  # 大型天体（太阳、行星）
-                # 使用对数缩放：log10(radius) * 缩放因子
-                log_radius = np.log10(entity.radius)
-                base_radius = 5  # 基础半径
-                # 移除1e9因子，让缩放正常工作
-                scaled_radius = base_radius * log_radius * self.camera_zoom
-            else:
-                scaled_radius = entity.radius * self.camera_zoom
-            
-            radius = max(2, int(scaled_radius))
-            
-            # 限制最大半径，避免实体过大覆盖整个屏幕
-            max_radius = min(self.config.width, self.config.height) // 4
-            radius = min(radius, max_radius)
-            
-            # 绘制实体
-            pygame.draw.circle(self.screen, entity.color, (screen_pos[0], screen_pos[1]), radius)
-            
-            # 绘制名称标签
-            if radius > 5 and radius < max_radius:  # 实体足够大且不太大时才显示名称
-                try:
-                    name_text = self.font_small.render(entity.name, True, self.config.text_color)
-                    text_rect = name_text.get_rect(center=(screen_pos[0], screen_pos[1] - radius - 10))
-                    self.screen.blit(name_text, text_rect)
-                except:
-                    pass  # 如果字体渲染失败，跳过标签绘制
+            try:
+                # 确保位置是有效的numpy数组
+                if not hasattr(entity, 'position') or entity.position is None:
+                    continue
+                    
+                # 转换坐标
+                screen_pos = self.world_to_screen_int(entity.position)
+                
+                # 确保screen_pos是有效的坐标对
+                if not isinstance(screen_pos, tuple) or len(screen_pos) != 2:
+                    continue
+                    
+                screen_x, screen_y = screen_pos
+                
+                # 计算实体在屏幕上的半径
+                # 对于天文模拟，使用固定的视觉大小而不是基于实际物理大小的缩放
+                # 这样可以确保所有实体在屏幕上都能看到
+                
+                # 根据实体名称和类型判断视觉大小
+                entity_name = entity.name if hasattr(entity, 'name') else "Unknown"
+                entity_name_lower = entity_name.lower()
+                
+                # 首先检查名称中的关键词
+                if "sun" in entity_name_lower or "太阳" in entity_name:
+                    # 太阳：较大的视觉大小
+                    radius = 20
+                elif "earth" in entity_name_lower or "mars" in entity_name_lower or "地球" in entity_name or "火星" in entity_name:
+                    # 行星：中等大小
+                    radius = 10
+                elif "asteroid" in entity_name_lower or "小行星" in entity_name:
+                    # 小行星：较小大小
+                    radius = 6
+                else:
+                    # 默认大小 - 根据质量判断
+                    if hasattr(entity, 'mass') and entity.mass > 1e28:  # 大型天体
+                        radius = 15
+                    elif hasattr(entity, 'mass') and entity.mass > 1e24:  # 中型天体
+                        radius = 8
+                    else:  # 小型天体
+                        radius = 5
+                
+                # 确保实体在屏幕上可见（至少3像素）
+                radius = max(3, radius)
+                
+                # 限制最大半径，避免实体过大覆盖整个屏幕
+                max_radius = min(self.config.width, self.config.height) // 6
+                radius = min(radius, max_radius)
+                
+                # 确保颜色有效
+                color = entity.color if hasattr(entity, 'color') else (255, 255, 255)
+                if not isinstance(color, tuple) or len(color) != 3:
+                    color = (255, 255, 255)
+                
+                # 绘制实体（带轮廓）
+                pygame.draw.circle(self.screen, color, (int(screen_x), int(screen_y)), radius)
+                
+                # 添加白色轮廓以提高可见性
+                pygame.draw.circle(self.screen, (255, 255, 255), (int(screen_x), int(screen_y)), radius, 1)
+                
+                # 绘制名称标签（总是显示，除非实体太小）
+                if radius >= 5:
+                    try:
+                        name_text = self.font_small.render(entity_name, True, self.config.text_color)
+                        # 添加文本背景以提高可读性
+                        text_bg = pygame.Surface((name_text.get_width() + 4, name_text.get_height() + 2), pygame.SRCALPHA)
+                        text_bg.fill((0, 0, 0, 180))
+                        text_rect = text_bg.get_rect(center=(int(screen_x), int(screen_y) - radius - 15))
+                        self.screen.blit(text_bg, text_rect)
+                        
+                        text_rect = name_text.get_rect(center=(int(screen_x), int(screen_y) - radius - 15))
+                        self.screen.blit(name_text, text_rect)
+                    except:
+                        pass  # 如果字体渲染失败，跳过标签绘制
+            except Exception as e:
+                # 打印错误但继续绘制其他实体
+                print(f"绘制实体 {entity.name if hasattr(entity, 'name') else 'Unknown'} 时出错: {e}")
+                continue
     
     def draw_objects(self):
         """绘制所有对象"""
         for obj in self.simulation.objects:
-            screen_pos = self.world_to_screen_int(obj.position)
-            
-            # 绘制对象（三角形表示飞船）
-            color = getattr(obj, 'color', (255, 100, 100))
-            size = max(3, int(5 * np.sqrt(self.camera_zoom)))
-            
-            # 计算速度方向
-            speed = np.linalg.norm(obj.velocity)
-            if speed > 0:
-                direction = obj.velocity / speed
-                angle = np.arctan2(direction[1], direction[0])
-            else:
-                angle = 0
-            
-            # 绘制三角形
-            points = []
-            for i in range(3):
-                point_angle = angle + i * 2 * np.pi / 3
-                px = screen_pos[0] + size * np.cos(point_angle)
-                py = screen_pos[1] + size * np.sin(point_angle)
-                points.append((px, py))
-            
-            pygame.draw.polygon(self.screen, color, points)
-            
-            # 如果被选中，绘制高亮
-            if obj.id == self.selected_object_id:
-                pygame.draw.circle(self.screen, self.config.highlight_color, 
-                                 (screen_pos[0], screen_pos[1]), size + 3, 2)
-            
-            # 绘制标签
-            label_text = self.font_small.render(obj.label, True, self.config.text_color)
-            text_rect = label_text.get_rect(center=(screen_pos[0], screen_pos[1] - size - 10))
-            self.screen.blit(label_text, text_rect)
+            try:
+                # 确保位置有效
+                if not hasattr(obj, 'position') or obj.position is None:
+                    continue
+                    
+                # 转换坐标
+                screen_pos = self.world_to_screen_int(obj.position)
+                
+                # 确保screen_pos是有效的坐标对
+                if not isinstance(screen_pos, tuple) or len(screen_pos) != 2:
+                    continue
+                    
+                screen_x, screen_y = screen_pos
+                
+                # 绘制对象（三角形表示飞船）
+                color = getattr(obj, 'color', (255, 100, 100))
+                if not isinstance(color, tuple) or len(color) != 3:
+                    color = (255, 100, 100)
+                    
+                # 使用固定大小，确保对象可见
+                size = 8
+                
+                # 计算速度方向
+                if hasattr(obj, 'velocity'):
+                    speed = np.linalg.norm(obj.velocity)
+                    if speed > 0:
+                        direction = obj.velocity / speed
+                        angle = np.arctan2(direction[1], direction[0])
+                    else:
+                        angle = 0
+                else:
+                    angle = 0
+                
+                # 绘制三角形
+                points = []
+                for i in range(3):
+                    point_angle = angle + i * 2 * np.pi / 3
+                    px = screen_x + size * np.cos(point_angle)
+                    py = screen_y + size * np.sin(point_angle)
+                    points.append((px, py))
+                
+                pygame.draw.polygon(self.screen, color, points)
+                
+                # 绘制对象中心点
+                pygame.draw.circle(self.screen, color, (int(screen_x), int(screen_y)), 2)
+                
+                # 如果被选中，绘制高亮
+                if hasattr(obj, 'id') and obj.id == self.selected_object_id:
+                    pygame.draw.circle(self.screen, self.config.highlight_color, 
+                                     (int(screen_x), int(screen_y)), size + 5, 2)
+                
+                # 绘制标签
+                label = obj.label if hasattr(obj, 'label') else "Unknown"
+                label_text = self.font_small.render(label, True, self.config.text_color)
+                text_rect = label_text.get_rect(center=(int(screen_x), int(screen_y) - size - 15))
+                self.screen.blit(label_text, text_rect)
+            except Exception as e:
+                # 打印错误但继续绘制其他对象
+                print(f"绘制对象 {obj.label if hasattr(obj, 'label') else 'Unknown'} 时出错: {e}")
+                continue
     
     def draw_trajectories(self):
         """绘制轨道"""
@@ -492,12 +573,12 @@ class GUIManager:
             self.config.info_panel_height
         )
         
-        # 绘制面板背景
-        pygame.draw.rect(self.screen, (0, 0, 0, 200), left_panel_rect)
+        # 绘制面板背景（增加不透明度）
+        pygame.draw.rect(self.screen, (0, 0, 0, 230), left_panel_rect)
         pygame.draw.rect(self.screen, self.config.highlight_color, left_panel_rect, 2)
         
         # 面板标题
-        title_text = self.font_medium.render("Selected Object Info", True, self.config.highlight_color)
+        title_text = self.font_medium.render("选中对象信息", True, (255, 255, 100))
         self.screen.blit(title_text, (left_panel_rect.x + 10, left_panel_rect.y + 10))
         
         # 显示选中对象或实体信息
@@ -518,7 +599,7 @@ class GUIManager:
                         
                         for line in info_lines:
                             text = self.font_small.render(line, True, self.config.text_color)
-                            self.screen.blit(text, (left_panel_rect.x + 10, left_panel_rect.y + y_offset))
+                            self.screen.blit(text, (left_panel_rect.x + 110, left_panel_rect.y + y_offset))
                             y_offset += 20
                     break
         elif self.selected_entity_id:
@@ -534,15 +615,18 @@ class GUIManager:
                     
                     for line in info_lines:
                         text = self.font_small.render(line, True, self.config.text_color)
-                        self.screen.blit(text, (left_panel_rect.x + 10, left_panel_rect.y + y_offset))
+                        self.screen.blit(text, (left_panel_rect.x + 110, left_panel_rect.y + y_offset))
                         y_offset += 20
                     break
         else:
             # 没有选中任何对象或实体时显示提示
-            text = self.font_small.render("No object/entity selected", True, self.config.text_color)
+            text = self.font_small.render("未选中任何对象/实体", True, (255, 255, 255))
             self.screen.blit(text, (left_panel_rect.x + 10, left_panel_rect.y + y_offset))
             y_offset += 20
-            text = self.font_small.render("Press TAB to select", True, self.config.text_color)
+            text = self.font_small.render("按B或TAB键选择对象/实体查看参数", True, (200, 200, 255))
+            self.screen.blit(text, (left_panel_rect.x + 10, left_panel_rect.y + y_offset))
+            y_offset += 20
+            text = self.font_small.render(f"可用对象: {len(self.simulation.objects)}, 实体: {len(self.simulation.entities)}", True, (180, 180, 180))
             self.screen.blit(text, (left_panel_rect.x + 10, left_panel_rect.y + y_offset))
         
         # 右侧面板 - 模拟状态
@@ -758,6 +842,9 @@ class GUIManager:
                 
                 # 切换选中对象或实体 (Tab 或 B)
                 elif event.key == pygame.K_TAB or event.key == pygame.K_b:
+                    print(f"[DEBUG] B/TAB键按下: 当前选中对象={self.selected_object_id}, 实体={self.selected_entity_id}")
+                    print(f"[DEBUG] 可用对象: {len(self.simulation.objects)}, 实体: {len(self.simulation.entities)}")
+                    
                     # 优先切换对象，如果没有对象则切换实体
                     if self.simulation.objects:
                         current_index = 0
@@ -770,7 +857,7 @@ class GUIManager:
                         next_index = (current_index + 1) % len(self.simulation.objects)
                         self.selected_object_id = self.simulation.objects[next_index].id
                         self.selected_entity_id = None  # 清除实体选择
-                        print(f"Switched to object: {self.simulation.objects[next_index].label}")
+                        print(f"[INFO] 切换到对象: {self.simulation.objects[next_index].label} (ID: {self.selected_object_id})")
                     elif self.simulation.entities:
                         current_index = 0
                         if self.selected_entity_id:
@@ -782,7 +869,9 @@ class GUIManager:
                         next_index = (current_index + 1) % len(self.simulation.entities)
                         self.selected_entity_id = self.simulation.entities[next_index].id
                         self.selected_object_id = None  # 清除对象选择
-                        print(f"Switched to entity: {self.simulation.entities[next_index].name}")
+                        print(f"[INFO] 切换到实体: {self.simulation.entities[next_index].name} (ID: {self.selected_entity_id})")
+                    else:
+                        print("[WARNING] 没有可用的对象或实体")
                 
                 # 机动界面控制
                 elif self.current_interface == "maneuver":
