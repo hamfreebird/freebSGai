@@ -1,0 +1,23 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "freebSEngine"
+version = "0.1.0"
+description = "天体物理模拟引擎"
+requires-python = ">=3.8"
+dependencies = [
+    "pygfx>=0.3.0",
+    "numpy>=1.21",
+    "pylinalg>=0.2",
+    "glfw>=2.5"
+]
+
+[tool.maturin]
+python-source = "python"  # 指定 Python 源码目录 [citation:1]
+bindings = "pyo3"         # 使用 PyO3 绑定
+features = ["pyo3/extension-module"]
+
+[project.scripts]
+cosmos-demo = "freebSEngine.demo:main"  # 可选：添加命令行入口

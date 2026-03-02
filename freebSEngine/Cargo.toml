@@ -1,0 +1,23 @@
+[package]
+name = "freebSEngine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "freebSEngine"
+crate-type = ["cdylib"]  # 生成动态库供 Python 调用
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+hifitime = "3.9"
+anise = "0.4"
+nalgebra = "0.32"
+astrora_core = "0.1"
+
+# 发布优化配置（大幅提升性能）[citation:2]
+[profile.release]
+lto = true          # 链接时优化
+codegen-units = 1   # 单代码生成单元，提升优化程度
+panic = "abort"     # 减少二进制体积
+opt-level = 3       # 最高优化等级
