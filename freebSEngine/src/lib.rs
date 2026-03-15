@@ -1,9 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyValueError, PyRuntimeError};
-use numpy::{PyArray1, PyArray2, PyArray3};
-use hifitime::Epoch;
-use astrora::orbit::{Orbit, propagate};
-use nalgebra::Vector3;
+use numpy::{PyArray1, PyArray2, PyArray3, IntoPyArray};
+use nalgebra::{Vector3, Matrix3};
 use std::f64::consts::PI;
 
 /// 自定义错误类型
@@ -32,9 +30,14 @@ impl From<AstroError> for PyErr {
     }
 }
 
-/// 计算天体轨道位置（增强版）
-/// 输入：初始状态（位置、速度）、时间步长、步数
-/// 输出：位置数组（可供 pygfx 直接使用）
+/// 物理常量
+const G: f64 = 6.67430e-11;  // 引力常数 (m³/kg/s²)
+const C: f64 = 299792458.0;  // 光速 (m/s)
+const AU: f64 = 1.495978707e11;  // 天文单位 (m)
+const SOLAR_MASS_KG: f64 = 1.98847e30;  // 太阳质量 (kg)
+const EARTH_MASS_KG: f64 = 5.9722e24;  // 地球质量 (kg)
+
+/// 计算天体轨道位置
 #[pyfunction]
 fn propagate_orbit(
     py: Python,
@@ -48,42 +51,106 @@ fn propagate_orbit(
     if r0.len() != 3 || v0.len() != 3 {
         return Err(PyValueError::new_err("Position and velocity vectors must have exactly 3 elements"));
     }
-    
+
     if step_seconds <= 0.0 {
         return Err(PyValueError::new_err("Step seconds must be positive"));
     }
-    
+
     if num_steps == 0 {
         return Err(PyValueError::new_err("Number of steps must be greater than 0"));
     }
 
-    // 1. 时间处理（使用 hifitime）
-    let start_epoch = Epoch::from_unix_seconds(epoch);
+    // 假设中心天体是太阳（简化）
+    let mu = G * SOLAR_MASS_KG;
 
-    // 2. 轨道传播（使用 astrora）
+    // 转换为向量
+    let r_vec = Vector3::new(r0[0], r0[1], r0[2]);
+    let v_vec = Vector3::new(v0[0], v0[1], v0[2]);
+
+    // 计算轨道根数
+    let h = r_vec.cross(&v_vec);  // 比角动量
+    let h_norm = h.norm();
+
+    // 偏心率向量
+    let e_vec = v_vec.cross(&h) / mu - r_vec / r_vec.norm();
+    let e = e_vec.norm();
+
+    // 比机械能
+    let energy = v_vec.norm_squared() / 2.0 - mu / r_vec.norm();
+
+    // 半长轴
+    let a = if energy < 0.0 {
+        -mu / (2.0 * energy)
+    } else {
+        // 双曲线轨道，使用大正值
+        1.0e12
+    };
+
+    // 初始真近点角
+    let nu0 = if e > 0.0 {
+        let cos_nu = e_vec.dot(&r_vec) / (e * r_vec.norm());
+        let nu = cos_nu.acos();
+        if r_vec.dot(&v_vec) < 0.0 {
+            2.0 * PI - nu
+        } else {
+            nu
+        }
+    } else {
+        0.0
+    };
+
+    // 轨道周期
+    let period = if a > 0.0 && !a.is_infinite() {
+        2.0 * PI * (a.powi(3) / mu).sqrt()
+    } else {
+        f64::INFINITY
+    };
+
+    // 存储所有位置
     let mut positions = Vec::with_capacity(num_steps * 3);
-    let orbit = Orbit::from_cartesian(r0, v0, start_epoch)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to create orbit: {}", e)))?;
 
     for i in 0..num_steps {
-        let current_time = start_epoch + step_seconds * (i as f64);
-        let propagated = propagate(&orbit, current_time)
-            .map_err(|e| PyRuntimeError::new_err(format!("Propagation failed at step {}: {}", i, e)))?;
-        let (r, _v) = propagated.cartesian();
-        positions.extend_from_slice(&r);
+        let t = i as f64 * step_seconds;
+
+        let nu = if period.is_finite() {
+            // 椭圆轨道：使用平均近点角近似
+            let M = 2.0 * PI * t / period;
+            nu0 + M
+        } else {
+            // 双曲线或抛物线轨道：简化处理
+            nu0 + 0.01 * t
+        };
+
+        // 计算位置（在轨道平面内）
+        let p = if a.is_finite() {
+            a * (1.0 - e.powi(2))
+        } else {
+            h_norm.powi(2) / mu
+        };
+
+        let r_current = p / (1.0 + e * nu.cos());
+
+        // 轨道平面内的坐标
+        let x_orb = r_current * nu.cos();
+        let y_orb = r_current * nu.sin();
+
+        // 简化：假设轨道在xy平面内
+        positions.push(x_orb);
+        positions.push(y_orb);
+        positions.push(0.0);
     }
 
-    // 3. 转换为 NumPy 数组（零拷贝）
+    // 转换为 NumPy 数组
     let positions_2d: Vec<Vec<f64>> = positions
         .chunks(3)
         .map(|chunk| chunk.to_vec())
         .collect();
-    
+
     let arr = PyArray2::from_vec2(py, &positions_2d)?;
     Ok(arr.to_owned())
 }
 
-/// 计算轨道根数（开普勒元素）
+/// 计算开普勒轨道根数
 #[pyfunction]
 fn compute_keplerian_elements(
     py: Python,
@@ -94,40 +161,76 @@ fn compute_keplerian_elements(
     if r.len() != 3 || v.len() != 3 {
         return Err(PyValueError::new_err("Position and velocity vectors must have exactly 3 elements"));
     }
-    
-    let epoch_time = Epoch::from_unix_seconds(epoch);
-    let orbit = Orbit::from_cartesian(r, v, epoch_time)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to create orbit: {}", e)))?;
-    
-    // 简化版本：直接计算基本轨道参数
-    // 注意：这里简化了计算，实际应用中应该使用完整的 astrora 功能
-    let r_norm = (r[0]*r[0] + r[1]*r[1] + r[2]*r[2]).sqrt();
-    let v_norm = (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).sqrt();
-    
-    // 简化计算：假设中心天体是太阳，使用标准引力参数
-    let mu = 1.32712440018e20;  // 太阳引力参数 (m³/s²)
-    
-    // 比机械能
-    let energy = v_norm*v_norm / 2.0 - mu / r_norm;
-    
-    // 半长轴
-    let semi_major_axis = if energy < 0.0 {
+
+    // 假设中心天体是太阳
+    let mu = G * SOLAR_MASS_KG;
+
+    let r_vec = Vector3::new(r[0], r[1], r[2]);
+    let v_vec = Vector3::new(v[0], v[1], v[2]);
+
+    // 计算比角动量
+    let h = r_vec.cross(&v_vec);
+    let h_norm = h.norm();
+
+    // 计算偏心率向量
+    let e_vec = v_vec.cross(&h) / mu - r_vec / r_vec.norm();
+    let e = e_vec.norm();
+
+    // 计算比机械能
+    let energy = v_vec.norm_squared() / 2.0 - mu / r_vec.norm();
+
+    // 计算半长轴
+    let a = if energy < 0.0 {
         -mu / (2.0 * energy)
     } else {
-        // 双曲线轨道，返回大正值
-        1.0e12
+        f64::INFINITY
     };
-    
-    // 简化：返回基本元素
-    let elements = vec![
-        semi_major_axis,
-        0.1,  // 简化偏心率
-        0.0,  // 简化倾角
-        0.0,  // 简化升交点赤经
-        0.0,  // 简化近地点幅角
-        0.0,  // 简化真近点角
-    ];
-    
+
+    // 计算倾角
+    let i = if h_norm > 0.0 {
+        (h[2] / h_norm).acos().to_degrees()
+    } else {
+        0.0
+    };
+
+    // 计算升交点赤经
+    let n = Vector3::new(0.0, 0.0, 1.0).cross(&h);
+    let n_norm = n.norm();
+    let raan = if n_norm > 0.0 {
+        let mut raan = (n[0] / n_norm).acos().to_degrees();
+        if n[1] < 0.0 {
+            raan = 360.0 - raan;
+        }
+        raan
+    } else {
+        0.0
+    };
+
+    // 计算近地点幅角
+    let argp = if n_norm > 0.0 && e > 0.0 {
+        let mut argp = (n.dot(&e_vec) / (n_norm * e)).acos().to_degrees();
+        if e_vec[2] < 0.0 {
+            argp = 360.0 - argp;
+        }
+        argp
+    } else {
+        0.0
+    };
+
+    // 计算真近点角
+    let nu = if e > 0.0 {
+        let cos_nu = e_vec.dot(&r_vec) / (e * r_vec.norm());
+        let mut nu = cos_nu.acos().to_degrees();
+        if r_vec.dot(&v_vec) < 0.0 {
+            nu = 360.0 - nu;
+        }
+        nu
+    } else {
+        0.0
+    };
+
+    // 返回所有元素
+    let elements = vec![a, e, i, raan, argp, nu];
     let py_array = PyArray1::from_vec(py, elements);
     Ok(py_array.to_owned())
 }
@@ -141,12 +244,12 @@ fn orbital_period(semi_major_axis: f64, mu: f64) -> PyResult<f64> {
     if mu <= 0.0 {
         return Err(PyValueError::new_err("Gravitational parameter must be positive"));
     }
-    
+
     let period = 2.0 * PI * (semi_major_axis.powi(3) / mu).sqrt();
     Ok(period)
 }
 
-/// 计算多个天体的引力相互作用（简化N体问题）
+/// 计算多个天体的引力相互作用（N体问题）
 #[pyfunction]
 fn nbody_simulation(
     py: Python,
@@ -162,79 +265,100 @@ fn nbody_simulation(
     if n != velocities.len() || n != masses.len() {
         return Err(PyValueError::new_err("Positions, velocities and masses must have the same length"));
     }
-    
+
     if n == 0 {
         return Err(PyValueError::new_err("At least one body required"));
     }
-    
+
     for pos in &positions {
         if pos.len() != 3 {
             return Err(PyValueError::new_err("Each position vector must have exactly 3 elements"));
         }
     }
-    
+
     for vel in &velocities {
         if vel.len() != 3 {
             return Err(PyValueError::new_err("Each velocity vector must have exactly 3 elements"));
         }
     }
-    
-    // 简化的N体模拟（使用直接积分）
-    let g = 6.67430e-11;  // 引力常数
-    
-    // 初始化状态
-    let mut current_positions = positions.clone();
-    let mut current_velocities = velocities.clone();
-    
+
+    // 转换为向量数组
+    let mut pos_vecs: Vec<Vector3<f64>> = positions.iter()
+        .map(|p| Vector3::new(p[0], p[1], p[2]))
+        .collect();
+
+    let mut vel_vecs: Vec<Vector3<f64>> = velocities.iter()
+        .map(|v| Vector3::new(v[0], v[1], v[2]))
+        .collect();
+
     // 存储所有时间步的位置
     let mut all_positions = Vec::with_capacity(steps * n * 3);
-    
+
+    // 使用 leapfrog 积分器（更稳定）
     for step in 0..steps {
-        // 计算每个物体的加速度
+        // 存储当前位置
+        for i in 0..n {
+            all_positions.push(pos_vecs[i][0]);
+            all_positions.push(pos_vecs[i][1]);
+            all_positions.push(pos_vecs[i][2]);
+        }
+
+        // 计算加速度
         let mut accelerations = vec![Vector3::zeros(); n];
-        
+
         for i in 0..n {
             for j in 0..n {
                 if i != j {
-                    let ri = Vector3::new(current_positions[i][0], current_positions[i][1], current_positions[i][2]);
-                    let rj = Vector3::new(current_positions[j][0], current_positions[j][1], current_positions[j][2]);
-                    let r_vec = rj - ri;
-                    let r_mag = r_vec.norm();
-                    
-                    if r_mag > 0.0 {
-                        let acceleration = g * masses[j] / r_mag.powi(3) * r_vec;
+                    let r_vec = pos_vecs[j] - pos_vecs[i];
+                    let r = r_vec.norm();
+
+                    if r > 0.0 {
+                        let acceleration = G * masses[j] / r.powi(3) * r_vec;
                         accelerations[i] += acceleration;
                     }
                 }
             }
         }
-        
-        // 更新位置和速度（使用欧拉方法）
+
+        // 更新速度（半步）
         for i in 0..n {
-            let acc = accelerations[i];
-            let vel = Vector3::new(current_velocities[i][0], current_velocities[i][1], current_velocities[i][2]);
-            let pos = Vector3::new(current_positions[i][0], current_positions[i][1], current_positions[i][2]);
-            
-            // 更新速度
-            let new_vel = vel + acc * dt;
-            current_velocities[i] = vec![new_vel.x, new_vel.y, new_vel.z];
-            
-            // 更新位置
-            let new_pos = pos + new_vel * dt;
-            current_positions[i] = vec![new_pos.x, new_pos.y, new_pos.z];
-            
-            // 存储位置
-            all_positions.extend_from_slice(&[new_pos.x, new_pos.y, new_pos.z]);
+            vel_vecs[i] += accelerations[i] * (dt / 2.0);
+        }
+
+        // 更新位置
+        for i in 0..n {
+            pos_vecs[i] += vel_vecs[i] * dt;
+        }
+
+        // 重新计算加速度
+        let mut accelerations_new = vec![Vector3::zeros(); n];
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
+                    let r_vec = pos_vecs[j] - pos_vecs[i];
+                    let r = r_vec.norm();
+
+                    if r > 0.0 {
+                        let acceleration = G * masses[j] / r.powi(3) * r_vec;
+                        accelerations_new[i] += acceleration;
+                    }
+                }
+            }
+        }
+
+        // 更新速度（另外半步）
+        for i in 0..n {
+            vel_vecs[i] += accelerations_new[i] * (dt / 2.0);
         }
     }
-    
+
     // 重塑为 3D 数组 [steps, n, 3]
     let shape = [steps as usize, n, 3];
     let arr = PyArray3::from_vec(py, shape, all_positions)?;
     Ok(arr.to_owned())
 }
 
-/// 计算轨道速度（圆形轨道）
+/// 计算圆形轨道速度
 #[pyfunction]
 fn circular_orbit_velocity(radius: f64, central_mass: f64) -> PyResult<f64> {
     if radius <= 0.0 {
@@ -243,9 +367,8 @@ fn circular_orbit_velocity(radius: f64, central_mass: f64) -> PyResult<f64> {
     if central_mass <= 0.0 {
         return Err(PyValueError::new_err("Central mass must be positive"));
     }
-    
-    let g = 6.67430e-11;
-    let velocity = (g * central_mass / radius).sqrt();
+
+    let velocity = (G * central_mass / radius).sqrt();
     Ok(velocity)
 }
 
@@ -258,9 +381,8 @@ fn escape_velocity(radius: f64, central_mass: f64) -> PyResult<f64> {
     if central_mass <= 0.0 {
         return Err(PyValueError::new_err("Central mass must be positive"));
     }
-    
-    let g = 6.67430e-11;
-    let velocity = (2.0 * g * central_mass / radius).sqrt();
+
+    let velocity = (2.0 * G * central_mass / radius).sqrt();
     Ok(velocity)
 }
 
@@ -273,13 +395,13 @@ fn freebSEngine(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nbody_simulation, m)?)?;
     m.add_function(wrap_pyfunction!(circular_orbit_velocity, m)?)?;
     m.add_function(wrap_pyfunction!(escape_velocity, m)?)?;
-    
+
     // 添加常量
-    m.add("GRAVITATIONAL_CONSTANT", 6.67430e-11)?;
-    m.add("SPEED_OF_LIGHT", 299792458.0)?;
-    m.add("ASTRONOMICAL_UNIT", 1.495978707e11)?;
-    m.add("SOLAR_MASS", 1.98847e30)?;
-    m.add("EARTH_MASS", 5.9722e24)?;
-    
+    m.add("GRAVITATIONAL_CONSTANT", G)?;
+    m.add("SPEED_OF_LIGHT", C)?;
+    m.add("ASTRONOMICAL_UNIT", AU)?;
+    m.add("SOLAR_MASS", SOLAR_MASS_KG)?;
+    m.add("EARTH_MASS", EARTH_MASS_KG)?;
+
     Ok(())
 }
