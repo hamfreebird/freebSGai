@@ -5,19 +5,148 @@ build-backend = "maturin"
 [project]
 name = "freebSEngine"
 version = "0.1.0"
-description = "天体物理模拟引擎"
+description = "High-performance astrophysics simulation engine"
+readme = "README.md"
+authors = [
+    {name = "freebSEngine Team", email = "team@freebSEngine.org"}
+]
+license = {text = "MIT"}
 requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+keywords = ["astrophysics", "orbital-mechanics", "simulation", "scientific-computing"]
 dependencies = [
-    "pygfx>=0.3.0",
     "numpy>=1.21",
-    "pylinalg>=0.2",
-    "glfw>=2.5"
 ]
 
-[tool.maturin]
-python-source = "python"  # 指定 Python 源码目录 [citation:1]
-bindings = "pyo3"         # 使用 PyO3 绑定
-features = ["pyo3/extension-module"]
+[project.optional-dependencies]
+visualization = [
+    "pygfx>=0.3.0",
+    "pylinalg>=0.2",
+    "glfw>=2.5",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "mypy>=1.0",
+    "ruff>=0.1.0",
+    "jupyter>=1.0",
+    "matplotlib>=3.5",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=1.0",
+    "numpydoc>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/freebSEngine"
+Documentation = "https://freebSEngine.readthedocs.io/"
+Repository = "https://github.com/yourusername/freebSEngine"
+Changelog = "https://github.com/yourusername/freebSEngine/releases"
+Issues = "https://github.com/yourusername/freebSEngine/issues"
 
 [project.scripts]
-cosmos-demo = "freebSEngine.demo:main"  # 可选：添加命令行入口
+freebSEngine-demo = "freebSEngine.demo:main"
+freebSEngine-example = "freebSEngine.examples.basic_usage:main"
+
+[tool.maturin]
+python-source = "python"
+bindings = "pyo3"
+features = ["pyo3/extension-module"]
+
+# 构建配置
+[tool.maturin.build-args]
+# 添加构建参数
+release = true
+strip = true
+
+# Python 工具配置
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+
+# 测试配置
+[tool.pytest.ini_options]
+testpaths = ["tests", "python/freebSEngine"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "visualization: tests requiring visualization libraries",
+    "integration: integration tests",
+]
+
+[tool.coverage.run]
+source = ["python/freebSEngine"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]

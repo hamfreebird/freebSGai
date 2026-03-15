@@ -2,22 +2,54 @@
 name = "freebSEngine"
 version = "0.1.0"
 edition = "2021"
+description = "High-performance astrophysics simulation engine"
+authors = ["freebSEngine Team"]
+license = "MIT"
+repository = "https://github.com/yourusername/freebSEngine"
+keywords = ["astrophysics", "orbital-mechanics", "simulation", "scientific-computing"]
+categories = ["science", "simulation"]
 
 [lib]
 name = "freebSEngine"
 crate-type = ["cdylib"]  # 生成动态库供 Python 调用
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.22", features = ["extension-module", "num-bigint", "num-complex"] }
 numpy = "0.22"
 hifitime = "3.9"
 anise = "0.4"
 nalgebra = "0.32"
 astrora_core = "0.1"
+thiserror = "1.0"  # 错误处理
+log = "0.4"        # 日志记录
+rayon = "1.10"     # 并行计算
 
-# 发布优化配置（大幅提升性能）[citation:2]
+[dev-dependencies]
+criterion = "0.5"  # 性能基准测试
+approx = "0.5"     # 近似比较
+tempfile = "3.10"  # 临时文件
+
+# 发布优化配置（大幅提升性能）
 [profile.release]
 lto = true          # 链接时优化
 codegen-units = 1   # 单代码生成单元，提升优化程度
 panic = "abort"     # 减少二进制体积
 opt-level = 3       # 最高优化等级
+strip = true        # 移除调试符号
+
+# 开发配置
+[profile.dev]
+opt-level = 0       # 快速编译
+debug = true        # 包含调试信息
+
+# 测试配置
+[profile.test]
+opt-level = 1
+debug = true
+
+# 基准测试配置
+[profile.bench]
+opt-level = 3
+debug = false
+lto = true
+codegen-units = 1
